@@ -1890,6 +1890,8 @@ check_SCRIPTS += $(EXAMPLESCRIPTSPYTHON)
 mesos_tests_DEPENDENCIES += $(EXAMPLESCRIPTSPYTHON)
 endif
 
+mesos_tests_SOURCES += tests/etcd_tests.cpp
+
 EXTRA_DIST +=							\
   examples/python/test_containerizer.py				\
   examples/python/test_executor.py				\
