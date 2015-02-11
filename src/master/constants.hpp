@@ -136,6 +136,9 @@ extern const std::string DEFAULT_HTTP_AUTHENTICATOR;
 // Name of the default, "mesos" HTTP authentication realm.
 extern const std::string DEFAULT_HTTP_AUTHENTICATION_REALM;
 
+// Number of seconds for the default etcd TTL.
+extern const Duration DEFAULT_ETCD_TTL;
+
 } // namespace master {
 } // namespace internal {
 } // namespace mesos {

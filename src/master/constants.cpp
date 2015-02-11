@@ -49,6 +49,7 @@ const Duration DEFAULT_ALLOCATION_INTERVAL = Seconds(1);
 const std::string DEFAULT_AUTHORIZER = "local";
 const std::string DEFAULT_HTTP_AUTHENTICATOR = "basic";
 const std::string DEFAULT_HTTP_AUTHENTICATION_REALM = "mesos";
+const Duration DEFAULT_ETCD_TTL = Seconds(5);
 
 } // namespace master {
 } // namespace internal {
