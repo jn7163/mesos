@@ -25,6 +25,8 @@
 #include <stout/lambda.hpp>
 #include <stout/nothing.hpp>
 
+#include "etcd/url.hpp"
+
 #include "messages/messages.hpp"
 
 #include "zookeeper/contender.hpp"
@@ -36,14 +38,9 @@ namespace internal {
 
 extern const Duration MASTER_CONTENDER_ZK_SESSION_TIMEOUT;
 
-
 // Forward declarations.
-namespace master {
-class Master;
-}
-
-
 class ZooKeeperMasterContenderProcess;
+class EtcdMasterContenderProcess;
 
 
 // An abstraction for contending to be a leading master.
@@ -57,6 +54,7 @@ public:
   // The mechanism address should be one of:
   //   - zk://host1:port1,host2:port2,.../path
   //   - zk://username:password@host1:port1,host2:port2,.../path
+  //   - etcd://host1:port1,host2:port2,.../v2/keys/path
   // Note that the returned contender still needs to be 'initialize()'d.
   static Try<MasterContender*> create(const Option<std::string>& _mechanism);
 
@@ -124,6 +122,19 @@ public:
 
 private:
   ZooKeeperMasterContenderProcess* process;
+};
+
+
+class EtcdMasterContender : public MasterContender
+{
+public:
+  explicit EtcdMasterContender(const etcd::URL& url);
+  virtual ~EtcdMasterContender();
+  virtual void initialize(const MasterInfo& masterInfo);
+  virtual process::Future<process::Future<Nothing>> contend();
+
+private:
+  EtcdMasterContenderProcess* process;
 };
 
 } // namespace internal {

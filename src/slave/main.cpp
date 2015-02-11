@@ -230,7 +230,7 @@ int main(int argc, char** argv)
       << "Failed to create a containerizer: " << containerizer.error();
   }
 
-  Try<MasterDetector*> detector = MasterDetector::create(master.get());
+  Try<MasterDetector*> detector = MasterDetector::create(master);
 
   if (detector.isError()) {
     EXIT(EXIT_FAILURE)
