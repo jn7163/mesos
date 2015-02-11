@@ -32,6 +32,7 @@
 #include <mesos/module/authorizer.hpp>
 
 #include <process/limiter.hpp>
+#include <process/network.hpp>
 #include <process/owned.hpp>
 #include <process/pid.hpp>
 
@@ -87,6 +88,7 @@ using mesos::master::allocator::Allocator;
 using mesos::modules::Anonymous;
 using mesos::modules::ModuleManager;
 
+using process::network::Address;
 using process::Owned;
 using process::RateLimiter;
 using process::UPID;
@@ -159,6 +161,7 @@ int main(int argc, char** argv)
             "Sample:\n"
             "  etcd://host1:port1,host2:port2,host3:port3/v2/keys/path\n");
 
+
   // Optional IP discover script that will set the Master IP.
   // If set, its output is expected to be a valid parseable IP string.
   Option<string> ip_discovery_command;
@@ -167,6 +170,13 @@ int main(int argc, char** argv)
       "Optional IP discovery binary: if set, it is expected to emit\n"
       "the IP address which Master will try to bind to.\n"
       "Cannot be used in conjunction with --ip.");
+
+  Option<string> masters;
+  flags.add(&masters,
+            "masters",
+            "Seed list of masters to use for the replicated log network. "
+            "Overrides --zk for finding the replica list when given.");
+
 
   Try<Nothing> load = flags.load("MESOS_", argc, argv);
 
@@ -183,18 +193,6 @@ int main(int argc, char** argv)
   if (flags.help) {
     cout << flags.usage() << endl;
     return EXIT_SUCCESS;
-  }
-
-  // Grab the leader election mechanism and fail if --etcd and --zk
-  // are both provided.
-  Option<string> mechanism = None();
-
-  if (etcd.isSome() && zk.isSome()) {
-    EXIT(1) << "Cannot specify both --etcd and --zk options at the same time";
-  } else if (etcd.isSome()) {
-    mechanism = etcd;
-  } else if (zk.isSome()) {
-    mechanism = zk;
   }
 
   // Initialize modules. Note that since other subsystems may depend
@@ -299,7 +297,54 @@ int main(int argc, char** argv)
         << "': " << mkdir.error();
     }
 
-    if (mechanism.isSome()) {
+    // Use the specified masters as the log replicas.
+    if (masters.isSome()) {
+      // Generate the list of replica PIDs.
+      set<UPID> replicas;
+
+      // Split the masters and resolve them into addresses.
+      foreach (const string& master, strings::split(masters.get(), ",")) {
+        // Try and resolve this master.
+        Try<vector<Address>> addresses = process::network::resolve(master);
+
+        if (addresses.isError()) {
+          EXIT(1) << "--masters: Failed to resolve '" << master
+                  << "': " << addresses.error();
+        }
+
+        if (addresses.get().empty()) {
+          EXIT(1) << "--masters: Failed to resolve '" << master
+                  << "': Not found";
+        }
+
+        // Grab the IPv4 and port from the first address.
+        //
+        // TODO(benh): Generate the UPID directly from the address.
+        uint32_t ip = addresses.get().front().ip;
+        uint16_t port = addresses.get().front().port;
+
+        // TODO(benh): Replace 'log-replica(1)' once we have a
+        // unique name for the log replicas.
+        replicas.insert(UPID("log-replica(1)", ip, port == 0 ? 5050 : port));
+      }
+
+      // Calculate quorum size if not given.
+      if (flags.quorum.isNone()) {
+        flags.quorum = Some(replicas.size() / 2 + 1);
+        LOG(INFO) << "Quorum size: " << flags.quorum.get();
+      }
+
+      LOG(INFO) << "Replicas: " << strings::join(",", replicas);
+
+      log = new Log(flags.quorum.get(),
+                    path::join(flags.work_dir.get(), "replicated_log"),
+                    replicas,
+                    flags.log_auto_initialize);
+    } else if (etcd.isSome()) {
+      EXIT(1) << "etcd is not a supported mechanism for replicated "
+              << "log group membership. You can use --masters to manually "
+              << "specify the list of masters";
+    } else if (zk.isSome()) {
       // Use replicated log with ZooKeeper.
       if (flags.quorum.isNone()) {
         EXIT(EXIT_FAILURE)
@@ -307,12 +352,7 @@ int main(int argc, char** argv)
           << " registry when using ZooKeeper";
       }
 
-      if (etcd.isSome()) {
-        EXIT(1) << "etcd is not a supported mechanism for replicated "
-                << "log group membership."
-      }
-
-      Try<zookeeper::URL> url = zookeeper::URL::parse(mechanism.get());
+      Try<zookeeper::URL> url = zookeeper::URL::parse(zk.get());
       if (url.isError()) {
         EXIT(EXIT_FAILURE) << "Error parsing ZooKeeper URL: " << url.error();
       }
@@ -348,8 +388,17 @@ int main(int argc, char** argv)
 
   Files files;
 
-  MasterContender* contender;
-  MasterDetector* detector;
+  // Determine the leader election mechanism and fail if --etcd and
+  // --zk are both provided.
+  Option<string> mechanism = None();
+
+  if (etcd.isSome() && zk.isSome()) {
+    EXIT(1) << "Cannot specify both --etcd and --zk options at the same time";
+  } else if (etcd.isSome()) {
+    mechanism = etcd;
+  } else if (zk.isSome()) {
+    mechanism = zk;
+  }
 
   Try<MasterContender*> contender_ = MasterContender::create(mechanism);
   if (contender_.isError()) {
@@ -495,16 +544,21 @@ int main(int argc, char** argv)
       registrar,
       repairer,
       &files,
-      contender,
-      detector,
+      contender.get(),
+      detector.get(),
       authorizer,
       slaveRemovalLimiter,
       flags);
 
+  // TODO(benh): GIANT HACK HERE! I don't know why or how or who let
+  // this code get committed but it is a nasty hack should be fixed.
   if (mechanism.isNone()) {
-    // It means we are using the standalone detector so we need to
-    // appoint this Master as the leader.
-    dynamic_cast<StandaloneMasterDetector*>(detector)->appoint(master->info());
+    // There is a very dangerous and implicit assumption that if there
+    // is no leader election mechanism then a StandaloneMasterDetector
+    // gets returned.  Thus, we cast to the standalone detector so
+    // that we can appoint the master we just created as the leader.
+    dynamic_cast<StandaloneMasterDetector*>(
+        detector.get())->appoint(master->info());
   }
 
   process::spawn(master);
@@ -519,8 +573,8 @@ int main(int argc, char** argv)
   delete storage;
   delete log;
 
-  delete contender;
-  delete detector;
+  delete contender.get();
+  delete detector.get();
 
   if (authorizer.isSome()) {
     delete authorizer.get();
