@@ -233,13 +233,23 @@ be found by running the binary with the flag `--help`, for example
       --zk=VALUE
     </td>
     <td>
-      ZooKeeper URL (used for leader election amongst masters)
+      URL to use for ZooKeeper based leader election.
       May be one of:
-<pre><code>zk://host1:port1,host2:port2,.../path
-zk://username:password@host1:port1,host2:port2,.../path
-file:///path/to/file (where file contains one of the above)</code></pre>
+      <pre><code>zk://host1:port1,host2:port2,.../path
+      zk://username:password@host1:port1,host2:port2,.../path
+      file:///path/to/file (where file contains one of the above)</code></pre>
       <p/>
       <b>NOTE</b> Not required if master is run in standalone mode (non-HA).
+    </td>
+  </tr>
+  <tr>
+    <td>
+      --etcd=VALUE
+    </td>
+    <td>
+      URL to use for etcd based leader election.
+      May be one of:
+      <pre><code>etcd://host1:port1,host2:port2/v2/keys/path</code>/pre>
     </td>
   </tr>
 </table>
@@ -822,9 +832,10 @@ file:///path/to/file (where file contains one of the above)</code></pre>
 </code></pre>
         </li>
 
-        <li> zookeeper or quorum hostname/ip + port + master registration path </li>
+        <li> ZooKeeper or etcd list of servers (host:port) and master registration path </li>
 <pre><code>--master=zk://host1:port1,host2:port2,.../path
 --master=zk://username:password@host1:port1,host2:port2,.../path
+--master=etcd://host1:port1,host2:port2/v2/keys/path
 </code></pre>
         </li>
 

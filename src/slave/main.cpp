@@ -121,6 +121,7 @@ int main(int argc, char** argv)
             "  host:port\n"
             "  zk://host1:port1,host2:port2,.../path\n"
             "  zk://username:password@host1:port1,host2:port2,.../path\n"
+            "  etcd://host1:port1,host2:port2,host3:port3/v2/keys/path\n"
             "  file:///path/to/file (where file contains one of the above)");
 
 
