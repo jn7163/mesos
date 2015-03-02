@@ -374,7 +374,7 @@ void ReplicaProcess::promise(const UPID& from, const PromiseRequest& request)
   // we also inform the requester, so that they can retry promptly.
   if (status() != Metadata::VOTING) {
     LOG(INFO) << "Replica ignoring promise request from " << from
-              << " as it is in " << status() << " status";
+              << " as it is in " << status();
 
     PromiseResponse response;
     response.set_type(PromiseResponse::IGNORE);
@@ -523,7 +523,7 @@ void ReplicaProcess::write(const UPID& from, const WriteRequest& request)
   // also inform the requester, so that they can retry promptly.
   if (status() != Metadata::VOTING) {
     LOG(INFO) << "Replica ignoring write request from " << from
-              << " as it is in " << status() << " status";
+              << " as it is in " << status();
 
     WriteResponse response;
     response.set_type(WriteResponse::IGNORE);
@@ -671,7 +671,7 @@ void ReplicaProcess::write(const UPID& from, const WriteRequest& request)
 void ReplicaProcess::recover(const UPID& from, const RecoverRequest& request)
 {
   LOG(INFO) << "Replica in " << status()
-            << " status received a broadcasted recover request from "
+            << " received a broadcasted recover request from "
             << from;
 
   RecoverResponse response;
