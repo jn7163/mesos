@@ -834,6 +834,14 @@ Future<Response> post(
     const Option<std::string>& body = None(),
     const Option<std::string>& contentType = None());
 
+// Asynchronously sends an HTTP PUT request to the specified URL
+// and returns the HTTP response of type 'BODY' once the entire
+// response is received.
+Future<Response> put(
+    const URL& url,
+    const Option<hashmap<std::string, std::string>>& headers = None(),
+    const Option<std::string>& body = None(),
+    const Option<std::string>& contentType = None());
 
 /**
  * Asynchronously sends an HTTP DELETE request to the process with the
