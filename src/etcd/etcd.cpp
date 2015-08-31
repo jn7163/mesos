@@ -21,6 +21,7 @@
 
 #include <process/future.hpp>
 #include <process/http.hpp>
+#include <process/owned.hpp>
 
 #include <stout/check.hpp>
 #include <stout/json.hpp>
@@ -39,9 +40,9 @@ using std::deque;
 
 namespace etcd {
 
-Try<Node> Node::parse(const JSON::Object& object)
+Try<Node*> Node::parse(const JSON::Object& object)
 {
-  Node node;
+  Owned<Node> node(new Node);
 
   Result<JSON::Number> createdIndex = object.find<JSON::Number>("createdIndex");
 
@@ -49,7 +50,7 @@ Try<Node> Node::parse(const JSON::Object& object)
     return Error("Failed to find 'createdIndex' in JSON: " +
                  createdIndex.error());
   } else if (createdIndex.isSome()) {
-    node.createdIndex = createdIndex.get().value;
+    node->createdIndex = createdIndex.get().value;
   }
 
   Result<JSON::String> expiration = object.find<JSON::String>("expiration");
@@ -57,7 +58,7 @@ Try<Node> Node::parse(const JSON::Object& object)
   if (expiration.isError()) {
     return Error("Failed to find 'expiration' in JSON: " + expiration.error());
   } else if (expiration.isSome()) {
-    node.expiration = expiration.get().value;
+    node->expiration = expiration.get().value;
   }
 
   Result<JSON::String> key = object.find<JSON::String>("key");
@@ -65,7 +66,7 @@ Try<Node> Node::parse(const JSON::Object& object)
   if (key.isError()) {
     return Error("Failed to find 'key' in JSON: " + key.error());
   } else if (key.isSome()) {
-    node.key = key.get().value;
+    node->key = key.get().value;
   } else if (key.isNone()) {
     return Error("Expecting 'key' in the JSON");
   }
@@ -77,7 +78,7 @@ Try<Node> Node::parse(const JSON::Object& object)
     return Error("Failed to find 'modifiedIndex' in JSON: " +
                  modifiedIndex.error());
   } else if (modifiedIndex.isSome()) {
-    node.modifiedIndex = modifiedIndex.get().value;
+    node->modifiedIndex = modifiedIndex.get().value;
   }
 
   Result<JSON::Number> ttl = object.find<JSON::Number>("ttl");
@@ -85,7 +86,7 @@ Try<Node> Node::parse(const JSON::Object& object)
   if (ttl.isError()) {
     return Error("Failed to find 'ttl' in JSON: " + ttl.error());
   } else if (ttl.isSome()) {
-    node.ttl = Seconds(ttl.get().value);
+    node->ttl = Seconds(ttl.get().value);
   }
 
   Result<JSON::String> value = object.find<JSON::String>("value");
@@ -93,14 +94,14 @@ Try<Node> Node::parse(const JSON::Object& object)
   if (value.isError()) {
     return Error("Failed to find 'value' in JSON: " + value.error());
   } else if (value.isSome()) {
-    node.value = value.get().value;
+    node->value = value.get().value;
   }
 
   // TODO(benh): Parse 'dir' and 'nodes'.
 
   // TODO(benh): Do any necessary validation.
 
-  return node;
+  return node.release();
 }
 
 
@@ -159,14 +160,14 @@ Try<Response> Response::parse(const Try<JSON::Object>& object)
   }
 
   // Check and see if we have a 'prevNode'.
-  Option<Node> previous = None();
+  Node *previous = NULL;
 
   Result<JSON::Object> prevNode = object.get().find<JSON::Object>("prevNode");
 
   if (prevNode.isError()) {
     return Error("Failed to find 'prevNode' in JSON: " + prevNode.error());
   } else if (prevNode.isSome()) {
-    Try<Node> parse = Node::parse(prevNode.get());
+    Try<Node*> parse = Node::parse(prevNode.get());
     if (parse.isError()) {
       return Error("Failed to parse 'prevNode' in JSON: " + parse.error());
     }
@@ -178,17 +179,17 @@ Try<Response> Response::parse(const Try<JSON::Object>& object)
   if (node.isError()) {
     return Error("Failed to find 'node' in JSON: " + node.error());
   } else if (node.isSome()) {
-    Try<Node> parse = Node::parse(node.get());
+    Try<Node*> parse = Node::parse(node.get());
     if (parse.isError()) {
       return Error("Failed to parse 'node' in JSON: " + parse.error());
     }
-    Node n = parse.get();
-    n.previous = previous;
-    response.node = n;
+    Node *n = parse.get();
+    n->previous.reset(previous);
+    response.node = *n;
   }
 
   // Now validate the JSON.
-  if (response.node.isNone() && response.node.get().previous.isNone()) {
+  if (response.node.isNone()) {
     return Error("No 'errorCode', 'node', or 'prevNode' found");
   }
 
@@ -381,7 +382,7 @@ static Future<Option<Node>> __get(const Response& response)
     return failure(response);
   } else if (response.node.isNone()) {
     return Failure("Expecting 'node' in response");
-  } else if (response.node.get().previous.isSome()) {
+  } else if (response.node.get().previous.get()) {
     return Failure("Not expecting 'prevNode' in response");
   }
 

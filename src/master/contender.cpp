@@ -404,7 +404,7 @@ Future<Nothing> EtcdMasterContenderProcess::__contend(
 
   // Extract the 'ttl' from the node (which we should have set
   // anyways) to use when watching the node for changes.
-  Duration ttl = node.get().ttl.get(DEFAULT_ETCD_TTL);
+  Duration ttl = node.get().ttl.getOrElse(DEFAULT_ETCD_TTL);
 
   // NOTE: We're explicitly ignoring the return value of 'etcd::watch'
   // since we can't distinguish a failed future from when etcd might

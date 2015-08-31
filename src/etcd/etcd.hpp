@@ -19,6 +19,7 @@
 #include <string>
 
 #include <process/future.hpp>
+#include <process/shared.hpp>
 
 #include <stout/duration.hpp>
 #include <stout/json.hpp>
@@ -32,7 +33,7 @@ namespace etcd {
 // Represents the JSON structure etcd returns for a node (key/value).
 struct Node
 {
-  static Try<Node> parse(const JSON::Object& object);
+  static Try<Node*> parse(const JSON::Object& object);
 
   Option<uint64_t> createdIndex;
   Option<std::string> expiration;
@@ -43,9 +44,7 @@ struct Node
   Option<bool> dir;
   Option<std::vector<Node>> nodes;
 
-  // Since our APIs return just the Node rather than the entire JSON
-  // response, we capture 'prevNode' here.
-  Option<Node> previous;
+  process::Shared<Node> previous;
 
 private:
   // Require everyone to call 'parse'.
