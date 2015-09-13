@@ -16,6 +16,7 @@
 #include <process/address.hpp>
 
 #include <stout/net.hpp>
+#include <stout/ip.hpp>
 #include <stout/try.hpp>
 
 namespace process {
@@ -217,9 +218,9 @@ inline Try<std::vector<Address>> resolve(
 
     for (; result != NULL; result = result->ai_next) {
       if (result->ai_family == AF_INET) {
+        net::IP ip(((struct sockaddr_in*) (result->ai_addr))->sin_addr);
         Address address(
-            ((struct sockaddr_in*) (result->ai_addr))->sin_addr.s_addr,
-            ntohs(((struct sockaddr_in*) (result->ai_addr))->sin_port));
+          ip, ntohs(((struct sockaddr_in*)(result->ai_addr))->sin_port));
         addresses.push_back(address);
       }
 
