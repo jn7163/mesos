@@ -320,7 +320,7 @@ int main(int argc, char** argv)
         // Grab the IPv4 and port from the first address.
         //
         // TODO(benh): Generate the UPID directly from the address.
-        uint32_t ip = addresses.get().front().ip;
+        net::IP ip = addresses.get().front().ip;
         uint16_t port = addresses.get().front().port;
 
         // TODO(benh): Replace 'log-replica(1)' once we have a
@@ -387,6 +387,8 @@ int main(int argc, char** argv)
   Repairer* repairer = new Repairer();
 
   Files files;
+  MasterContender* contender;
+  MasterDetector* detector;
 
   // Determine the leader election mechanism and fail if --etcd and
   // --zk are both provided.
@@ -544,8 +546,8 @@ int main(int argc, char** argv)
       registrar,
       repairer,
       &files,
-      contender.get(),
-      detector.get(),
+      contender,
+      detector,
       authorizer,
       slaveRemovalLimiter,
       flags);
@@ -558,7 +560,7 @@ int main(int argc, char** argv)
     // gets returned.  Thus, we cast to the standalone detector so
     // that we can appoint the master we just created as the leader.
     dynamic_cast<StandaloneMasterDetector*>(
-        detector.get())->appoint(master->info());
+        detector)->appoint(master->info());
   }
 
   process::spawn(master);
@@ -573,8 +575,8 @@ int main(int argc, char** argv)
   delete storage;
   delete log;
 
-  delete contender.get();
-  delete detector.get();
+  delete contender;
+  delete detector;
 
   if (authorizer.isSome()) {
     delete authorizer.get();

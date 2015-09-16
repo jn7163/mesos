@@ -99,7 +99,7 @@ fi
 sleep 1 # Wait for master to fully be elected (log recovered).
 
 # Check that the master has become elected.
-curl http://127.0.0.1:5050/stats.json | grep '"elected":1'
+curl -s http://127.0.0.1:5050/metrics/snapshot | grep '"master\\/elected":1'
 
 if [ "${?}" -ne 0 ]; then
   echo "Expecting the first master to be elected!"
