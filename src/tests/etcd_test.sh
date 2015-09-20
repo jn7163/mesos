@@ -66,6 +66,7 @@ common_flags=(
   --ip=127.0.0.1
   --masters=127.0.0.1,127.0.0.1:6060,127.0.0.1:7070
   --etcd=etcd://127.0.0.1/v2/keys/mesos
+  --log_dir=/tmp/logs/
 )
 
 # Start watching etcd so that we can check our expectations.
@@ -96,15 +97,45 @@ if [ "${?}" -ne 0 ]; then
   exit -1
 fi
 
-sleep 1 # Wait for master to fully be elected (log recovered).
+check_elected() {
+    local port
+    case $1 in
+        1)
+            port=5050
+            ;;
+        2)
+            port=6060
+            ;;
+        3)
+            port=7070
+    esac
+    for _ in $(seq 1 5); do
+        sleep 1
+        # Check that the master has become elected.
+        if curl -s http://127.0.0.1:$port/metrics/snapshot | grep -q '"master\\/elected":1'; then
+            return 0
+            break
+        fi
+    done
 
-# Check that the master has become elected.
-curl -s http://127.0.0.1:5050/metrics/snapshot | grep '"master\\/elected":1'
+    return 1
+}
 
-if [ "${?}" -ne 0 ]; then
-  echo "Expecting the first master to be elected!"
-  exit -1
-fi
+ensure_elected() {
+    check_elected $1 || {
+        echo "Expecting master$1 to be elected!"
+        exit -1
+    }
+}
+
+ensure_not_elected() {
+    check_elected $1 && {
+        echo "Not expecting master$1 to be elected!"
+        exit -1
+    }
+}
+
+ensure_elected 1
 
 echo "---------------- FIRST MASTER ELECTED ----------------"
 
@@ -142,6 +173,8 @@ ${MESOS_BUILD_DIR}/src/mesos-slave \
   --master=etcd://127.0.0.1/v2/keys/mesos \
   --resources="cpus:2;mem:10240" \
   --work_dir="${WORK_DIR}/slave" \
+  --launcher_dir="${MESOS_BUILD_DIR}/src/" \
+  --log_dir=/tmp/logs/ \
   --port=5052 &
 
 SLAVE_PID=${!}
@@ -153,6 +186,7 @@ atexit "kill ${SLAVE_PID}"
 sleep 3
 
 # Now run the test framework using etcd to find the master.
+echo "Running the test framework"
 ${MESOS_BUILD_DIR}/src/test-framework --master=etcd://127.0.0.1/v2/keys/mesos
 
 if [ "${?}" -ne 0 ]; then
@@ -191,18 +225,8 @@ fi
 
 echo "--------------- SECOND/THIRD MASTER ELECTED ---------------"
 
-sleep 1 # Wait for master to fully be elected (log recovered).
-
 # Check that the second or third master has become elected.
-curl http://127.0.0.1:6060/stats.json | grep '"elected":1'
-if [ "${?}" -ne 0 ]; then
-  curl http://127.0.0.1:7070/stats.json | grep '"elected":1'
-  if [ "${?}" -ne 0 ]; then
-    echo "Expecting the third master to be elected!"
-    exit -1
-  fi
-fi
-
+check_elected 2 || ensure_elected 3
 
 # Restart the first master and check that it's not elected.
 ${MESOS_BUILD_DIR}/src/mesos-master "${common_flags[@]}" \
@@ -213,17 +237,7 @@ MASTER1_PID=${!}
 
 atexit "kill ${MASTER1_PID}"
 
-# Wait for the first master to start.
-sleep 1
-
-# Check that the first master has NOT become elected.
-curl http://127.0.0.1:5050/stats.json | grep '"elected":0'
-
-if [ "${?}" -ne 0 ]; then
-  echo "Expecting the first master to NOT be elected!"
-  exit -1
-fi
-
+ensure_not_elected 1
 
 # Now re-run the test framework using etcd to find the master.
 ${MESOS_BUILD_DIR}/src/test-framework --master=etcd://127.0.0.1/v2/keys/mesos
@@ -233,23 +247,23 @@ if [ "${?}" -ne 0 ]; then
   exit -1
 fi
 
+echo "Now kill the etcd server"
 
+kill ${ETCD_PID}
+wait ${ETCD_PID}
 
-# kill ${ETCD_PID}
-# wait ${ETCD_PID}
+${ETCD} -data-dir=${WORK_DIR}/etcd &
 
-# ${ETCD} -data-dir=${WORK_DIR}/etcd &
+ETCD_PID=${!}
 
-# ETCD_PID=${!}
+atexit "kill ${ETCD_PID}"
 
-# atexit "kill ${ETCD_PID}"
+# And re-run the test framework using the restarted etcd.
+${MESOS_BUILD_DIR}/src/test-framework --master=etcd://127.0.0.1/v2/keys/mesos
 
-# # And re-run the test framework using the restarted etcd.
-# ${MESOS_BUILD_DIR}/src/test-framework --master=etcd://127.0.0.1/v2/keys/mesos
-
-# if [ "${?}" -ne 0 ]; then
-#   echo "Expecting the test framework to exit successfully!"
-#   exit -1
-# fi
+if [ "${?}" -ne 0 ]; then
+  echo "Expecting the test framework to exit successfully!"
+  exit -1
+fi
 
 # The atexit handlers will clean up the remaining masters/slaves/etcd.
