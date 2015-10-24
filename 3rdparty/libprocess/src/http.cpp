@@ -1361,7 +1361,7 @@ Future<Response> post(
 
 Future<Response> put(
     const URL& url,
-    const Option<hashmap<string, string>>& headers,
+    const Option<Headers>& headers,
     const Option<string>& body,
     const Option<string>& contentType)
 {
@@ -1369,7 +1369,24 @@ Future<Response> put(
     return Failure("Attempted to do a PUT with a Content-Type but no body");
   }
 
-  return internal::request(url, "PUT", false, headers, body, contentType);
+  Request request;
+  request.method = "PUT";
+  request.url = url;
+  request.keepAlive = false;
+
+  if (headers.isSome()) {
+    request.headers = headers.get();
+  }
+
+  if (body.isSome()) {
+    request.body = body.get();
+  }
+
+  if (contentType.isSome()) {
+    request.headers["Content-Type"] = contentType.get();
+  }
+
+  return internal::request(request, false);
 }
 
 

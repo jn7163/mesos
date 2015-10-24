@@ -839,7 +839,7 @@ Future<Response> post(
 // response is received.
 Future<Response> put(
     const URL& url,
-    const Option<hashmap<std::string, std::string>>& headers = None(),
+    const Option<Headers>& headers = None(),
     const Option<std::string>& body = None(),
     const Option<std::string>& contentType = None());
 
