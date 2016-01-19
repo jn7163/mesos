@@ -1,27 +1,28 @@
-/**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #include <string>
-#include <deque>
 
+#include <process/defer.hpp>
+#include <process/delay.hpp>
+#include <process/dispatch.hpp>
 #include <process/future.hpp>
 #include <process/http.hpp>
 #include <process/owned.hpp>
+#include <process/process.hpp>
 
 #include <stout/check.hpp>
 #include <stout/json.hpp>
@@ -36,10 +37,10 @@
 using namespace process;
 
 using std::string;
-using std::deque;
+using std::vector;
 
-namespace etcd {
-
+namespace etcd
+{
 Try<Node*> Node::parse(const JSON::Object& object)
 {
   Owned<Node> node(new Node);
@@ -49,15 +50,17 @@ Try<Node*> Node::parse(const JSON::Object& object)
   if (createdIndex.isError()) {
     return Error("Failed to find 'createdIndex' in JSON: " +
                  createdIndex.error());
-  } else if (createdIndex.isSome()) {
-    node->createdIndex = createdIndex.get().value;
+  }
+  else if (createdIndex.isSome()) {
+    node->createdIndex = createdIndex.get().as<uint64_t>();
   }
 
   Result<JSON::String> expiration = object.find<JSON::String>("expiration");
 
   if (expiration.isError()) {
     return Error("Failed to find 'expiration' in JSON: " + expiration.error());
-  } else if (expiration.isSome()) {
+  }
+  else if (expiration.isSome()) {
     node->expiration = expiration.get().value;
   }
 
@@ -65,9 +68,11 @@ Try<Node*> Node::parse(const JSON::Object& object)
 
   if (key.isError()) {
     return Error("Failed to find 'key' in JSON: " + key.error());
-  } else if (key.isSome()) {
+  }
+  else if (key.isSome()) {
     node->key = key.get().value;
-  } else if (key.isNone()) {
+  }
+  else if (key.isNone()) {
     return Error("Expecting 'key' in the JSON");
   }
 
@@ -77,23 +82,26 @@ Try<Node*> Node::parse(const JSON::Object& object)
   if (modifiedIndex.isError()) {
     return Error("Failed to find 'modifiedIndex' in JSON: " +
                  modifiedIndex.error());
-  } else if (modifiedIndex.isSome()) {
-    node->modifiedIndex = modifiedIndex.get().value;
+  }
+  else if (modifiedIndex.isSome()) {
+    node->modifiedIndex = modifiedIndex.get().as<uint64_t>();
   }
 
   Result<JSON::Number> ttl = object.find<JSON::Number>("ttl");
 
   if (ttl.isError()) {
     return Error("Failed to find 'ttl' in JSON: " + ttl.error());
-  } else if (ttl.isSome()) {
-    node->ttl = Seconds(ttl.get().value);
+  }
+  else if (ttl.isSome()) {
+    node->ttl = Seconds(ttl.get().as<uint64_t>());
   }
 
   Result<JSON::String> value = object.find<JSON::String>("value");
 
   if (value.isError()) {
     return Error("Failed to find 'value' in JSON: " + value.error());
-  } else if (value.isSome()) {
+  }
+  else if (value.isSome()) {
     node->value = value.get().value;
   }
 
@@ -118,14 +126,16 @@ Try<Response> Response::parse(const Try<JSON::Object>& object)
 
   if (errorCode.isError()) {
     return Error("Failed to find 'errorCode' in JSON: " + errorCode.error());
-  } else if (errorCode.isSome()) {
-    response.errorCode = errorCode.get().value;
+  }
+  else if (errorCode.isSome()) {
+    response.errorCode = errorCode.get().as<int>();
 
     Result<JSON::String> message = object.get().find<JSON::String>("message");
 
     if (message.isError()) {
       return Error("Failed to find 'message' in JSON" + message.error());
-    } else if (message.isSome()) {
+    }
+    else if (message.isSome()) {
       response.message = message.get().value;
     }
 
@@ -133,7 +143,8 @@ Try<Response> Response::parse(const Try<JSON::Object>& object)
 
     if (cause.isError()) {
       return Error("Failed to find 'cause' in JSON: " + cause.error());
-    } else if (cause.isSome()) {
+    }
+    else if (cause.isSome()) {
       response.cause = cause.get().value;
     }
 
@@ -141,8 +152,9 @@ Try<Response> Response::parse(const Try<JSON::Object>& object)
 
     if (index.isError()) {
       return Error("Failed to find 'index' in JSON: " + index.error());
-    } else if (index.isSome()) {
-      response.index = index.get().value;
+    }
+    else if (index.isSome()) {
+      response.index = index.get().as<uint64_t>();
     }
 
     // TODO(benh): Do any necessary validation.
@@ -155,18 +167,20 @@ Try<Response> Response::parse(const Try<JSON::Object>& object)
 
   if (action.isError()) {
     return Error("Failed to find 'action' in JSON: " + action.error());
-  } else if (action.isSome()) {
+  }
+  else if (action.isSome()) {
     response.action = action.get().value;
   }
 
   // Check and see if we have a 'prevNode'.
-  Node *previous = NULL;
+  Node* previous = NULL;
 
   Result<JSON::Object> prevNode = object.get().find<JSON::Object>("prevNode");
 
   if (prevNode.isError()) {
     return Error("Failed to find 'prevNode' in JSON: " + prevNode.error());
-  } else if (prevNode.isSome()) {
+  }
+  else if (prevNode.isSome()) {
     Try<Node*> parse = Node::parse(prevNode.get());
     if (parse.isError()) {
       return Error("Failed to parse 'prevNode' in JSON: " + parse.error());
@@ -178,12 +192,13 @@ Try<Response> Response::parse(const Try<JSON::Object>& object)
 
   if (node.isError()) {
     return Error("Failed to find 'node' in JSON: " + node.error());
-  } else if (node.isSome()) {
+  }
+  else if (node.isSome()) {
     Try<Node*> parse = Node::parse(node.get());
     if (parse.isError()) {
       return Error("Failed to parse 'node' in JSON: " + parse.error());
     }
-    Node *n = parse.get();
+    Node* n = parse.get();
     n->previous.reset(previous);
     response.node = *n;
   }
@@ -234,32 +249,54 @@ Failure failure(const Response& response)
   return Failure(message);
 }
 
+class EtcdClientProcess : public Process<EtcdClientProcess>
+{
+public:
+  EtcdClientProcess(const URL& _url, const Option<Duration>& _defaultTTL)
+    : etcdURL(_url), defaultTTL(_defaultTTL)
+  {
+  }
 
-// Forward declarations of continuations.
-static Future<http::Response> _create(deque<http::URL> urls);
-static Future<Option<Node>> __create(const Response& response);
+  Future<Option<Node>> create(const string& value,
+                              const Option<Duration>& ttl,
+                              const Option<bool> prevExist,
+                              const Option<uint64_t>& prevIndex,
+                              const Option<string>& prevValue);
 
-static Future<http::Response> _get(deque<http::URL> urls);
-static Future<Option<Node>> __get(const Response& response);
+  Future<Option<Node>> get();
 
-static Future<http::Response> _watch(deque<http::URL> urls);
-static Future<Option<Node>> __watch(const Response& response);
+  Future<Option<Node>> watch(const Option<uint64_t>& waitIndex);
 
 
-Future<Option<Node>> create(
-    const URL& _url,
-    const string& value,
-    const Option<Duration>& ttl,
-    const Option<bool> prevExist,
-    const Option<uint64_t>& prevIndex,
-    const Option<string>& prevValue)
+private:
+  // Forward declarations of continuations.
+  Future<Option<Node>> _create(vector<http::URL> urls, uint32_t index);
+  Future<Option<Node>> __create(const Response& response);
+
+  Future<Option<Node>> _get(vector<http::URL> urls, uint32_t index);
+  Future<Option<Node>> __get(const Response& response);
+
+  Future<Option<Node>> _watch(vector<http::URL> urls, uint32_t index);
+  Future<Option<Node>> __watch(const Response& response);
+
+  URL etcdURL;
+  Option<Duration> defaultTTL;
+};
+
+
+Future<Option<Node>> EtcdClientProcess::create(
+  const string& value,
+  const Option<Duration>& ttl,
+  const Option<bool> prevExist,
+  const Option<uint64_t>& prevIndex,
+  const Option<string>& prevValue)
 {
   // Transform the etcd URL into a collection of HTTP URLs.
-  deque<http::URL> urls;
+  vector<http::URL> urls;
 
-  foreach (const URL::Server& server, _url.servers) {
+  foreach (const URL::Server& server, etcdURL.servers) {
     // TODO(benh): Use HTTPS after supported in libprocess.
-    http::URL url("http", server.host, server.port, _url.path);
+    http::URL url("http", server.host, server.port, etcdURL.path);
 
     url.query["value"] = value;
 
@@ -287,34 +324,37 @@ Future<Option<Node>> create(
 
   // TODO(benh): Randomize ordering of URLs or some how create a
   // structure to know which one was used in the past and use that
-  // one. The latter would be easier if we actually had an 'Etcd'
+  // one. The latter would be easier if we actually had an 'Etcd
   // object from which we made 'create', 'get', 'watch', etc, not take
   // the entire etcd::URL but instead just took the necessary
   // parameters (like, 'key', 'value', etc).
 
-  return _create(urls)
-    .then(lambda::bind(&parse, lambda::_1))
-    .then(lambda::bind(&__create, lambda::_1));
+  return _create(urls, 0);
 }
 
 
-static Future<http::Response> _create(deque<http::URL> urls)
+Future<Option<Node>> EtcdClientProcess::_create(vector<http::URL> urls,
+                                                uint32_t index)
 {
-  if (urls.empty()) {
-    return Failure("Exhaustively tried all etcd servers; giving up");
+  // If all urls has been tried for a round, wait for several seconds
+  // before trying again.
+  if (index >= urls.size()) {
+    Promise<Option<Node>>* promise = new Promise<Option<Node>>();
+    return promise->future().after(
+      Seconds(10), defer(self(), &EtcdClientProcess::_create, urls, 0));
   }
 
-  http::URL url = urls.front();
-
-  urls.pop_front();
+  http::URL url = urls[index];
 
   // TODO(benh): Add connection timeout once supported by http::put.
   return http::put(url)
-    .repair(lambda::bind(&_create, urls));
+    .then(lambda::bind(&parse, lambda::_1))
+    .then(defer(self(), &EtcdClientProcess::__create, lambda::_1))
+    .repair(defer(self(), &EtcdClientProcess::_create, urls, index + 1));
 }
 
 
-static Future<Option<Node>> __create(const Response& response)
+Future<Option<Node>> EtcdClientProcess::__create(const Response& response)
 {
   if (response.errorCode.isSome()) {
     // If the key already exists, or had the wrong value we return
@@ -324,7 +364,8 @@ static Future<Option<Node>> __create(const Response& response)
       return None();
     }
     return failure(response);
-  } else if (response.node.isNone()) {
+  }
+  else if (response.node.isNone()) {
     return Failure("Expecting 'node' in response");
   };
   // Previous might be some because we aren't always strictly
@@ -333,14 +374,14 @@ static Future<Option<Node>> __create(const Response& response)
 }
 
 
-Future<Option<Node>> get(const URL& _url)
+Future<Option<Node>> EtcdClientProcess::get()
 {
-  // Transform the etcd URL into a deque of HTTP URLs.
-  deque<http::URL> urls;
+  // Transform the etcd URL into an array of HTTP URLs.
+  vector<http::URL> urls;
 
-  foreach (const URL::Server& server, _url.servers) {
+  foreach (const URL::Server& server, etcdURL.servers) {
     // TODO(benh): Use HTTPS after supported in libprocess.
-    http::URL url("http", server.host, server.port, _url.path);
+    http::URL url("http", server.host, server.port, etcdURL.path);
 
     url.query["quorum"] = "true";
 
@@ -349,29 +390,32 @@ Future<Option<Node>> get(const URL& _url)
 
   // TODO(benh): See TODO in 'create' for randomizing ordering of URLs.
 
-  return _get(urls)
-    .then(lambda::bind(&parse, lambda::_1))
-    .then(lambda::bind(&__get, lambda::_1));
+  return _get(urls, 0);
 }
 
 
-static Future<http::Response> _get(deque<http::URL> urls)
+Future<Option<Node>> EtcdClientProcess::_get(vector<http::URL> urls,
+                                             uint32_t index)
 {
-  if (urls.empty()) {
-    return Failure("Exhaustively tried all etcd servers; giving up");
+  // If all urls has been tried for a round, wait for several seconds
+  // before trying again.
+  if (index >= urls.size()) {
+    Promise<Option<Node>>* promise = new Promise<Option<Node>>();
+    return promise->future().after(
+      Seconds(10), defer(self(), &EtcdClientProcess::_get, urls, 0));
   }
 
-  http::URL url = urls.front();
+  http::URL url = urls[index];
+  VLOG(2) << "[etcd.get] Trying etcd server " << url;
 
-  urls.pop_front();
-
-  // TODO(benh): Add connection timeout once supported by http::get.
   return http::get(url)
-    .repair(lambda::bind(&_get, urls));
+    .then(lambda::bind(&parse, lambda::_1))
+    .then(defer(self(), &EtcdClientProcess::__get, lambda::_1))
+    .repair(defer(self(), &EtcdClientProcess::_get, urls, index + 1));
 }
 
 
-static Future<Option<Node>> __get(const Response& response)
+Future<Option<Node>> EtcdClientProcess::__get(const Response& response)
 {
   // If this key is just missing then return none, otherwise return a
   // Failure and attempt to provide the 'message'.
@@ -380,9 +424,11 @@ static Future<Option<Node>> __get(const Response& response)
       return None();
     }
     return failure(response);
-  } else if (response.node.isNone()) {
+  }
+  else if (response.node.isNone()) {
     return Failure("Expecting 'node' in response");
-  } else if (response.node.get().previous.get()) {
+  }
+  else if (response.node.get().previous.get()) {
     return Failure("Not expecting 'prevNode' in response");
   }
 
@@ -390,16 +436,14 @@ static Future<Option<Node>> __get(const Response& response)
 }
 
 
-Future<Option<Node>> watch(
-    const URL& _url,
-    const Option<uint64_t>& waitIndex)
+Future<Option<Node>> EtcdClientProcess::watch(const Option<uint64_t>& waitIndex)
 {
-  // Transform the etcd URL into a deque of HTTP URLs.
-  deque<http::URL> urls;
+  // Transform the etcd URL into an array of HTTP URLs.
+  vector<http::URL> urls;
 
-  foreach (const URL::Server& server, _url.servers) {
+  foreach (const URL::Server& server, etcdURL.servers) {
     // TODO(benh): Use HTTPS after supported in libprocess.
-    http::URL url("http", server.host, server.port, _url.path);
+    http::URL url("http", server.host, server.port, etcdURL.path);
 
     url.query["wait"] = "true";
 
@@ -412,33 +456,36 @@ Future<Option<Node>> watch(
 
   // TODO(benh): See TODO in 'create' for randomizing ordering of URLs.
 
-  return _watch(urls)
-    .then(lambda::bind(&parse, lambda::_1))
-    .then(lambda::bind(&__watch, lambda::_1));
+  return _watch(urls, 0);
 }
 
-
-static Future<http::Response> _watch(deque<http::URL> urls)
+Future<Option<Node>> EtcdClientProcess::_watch(vector<http::URL> urls,
+                                               uint32_t index)
 {
-  if (urls.empty()) {
-    return Failure("Exhaustively tried all etcd servers; giving up");
+  // If all urls has been tried for a round, wait for several seconds
+  // before trying again.
+  if (index >= urls.size()) {
+    Promise<Option<Node>>* promise = new Promise<Option<Node>>();
+    return promise->future().after(
+      Seconds(10), defer(self(), &EtcdClientProcess::_watch, urls, 0));
   }
 
-  http::URL url = urls.front();
+  http::URL url = urls[index];
+  VLOG(2) << "[etcd.watch] Trying etcd server " << url;
 
-  urls.pop_front();
-
-  // TODO(benh): Add connection timeout once supported by http::get.
   return http::get(url)
-    .repair(lambda::bind(&_watch, urls));
+    .then(lambda::bind(&parse, lambda::_1))
+    .then(defer(self(), &EtcdClientProcess::__watch, lambda::_1))
+    .repair(defer(self(), &EtcdClientProcess::_watch, urls, index + 1));
 }
 
 
-static Future<Option<Node>> __watch(const Response& response)
+Future<Option<Node>> EtcdClientProcess::__watch(const Response& response)
 {
   if (response.errorCode.isSome()) {
     return failure(response);
-  } else if (response.action.isSome()) {
+  }
+  else if (response.action.isSome()) {
     // If the key has been deleted then return None.
     if (response.action.get() == "delete" ||
         response.action.get() == "compareAndDelete") {
@@ -452,6 +499,35 @@ static Future<Option<Node>> __watch(const Response& response)
   }
 
   return Failure("Expecting 'action' in response");
+}
+
+EtcdClient::EtcdClient(const URL& url, const Option<Duration>& defaultTTL)
+{
+  process = new EtcdClientProcess(url, defaultTTL);
+  spawn(process);
+}
+
+
+process::Future<Option<Node>> EtcdClient::create(
+  const std::string& value,
+  const Option<Duration>& ttl,
+  const Option<bool> prevExist,
+  const Option<uint64_t>& prevIndex,
+  const Option<std::string>& prevValue)
+{
+  return dispatch(process, &EtcdClientProcess::create, value, ttl, prevExist,
+                  prevIndex, prevValue);
+}
+
+process::Future<Option<Node>> EtcdClient::get()
+{
+  return dispatch(process, &EtcdClientProcess::get);
+}
+
+process::Future<Option<Node>> EtcdClient::watch(
+  const Option<uint64_t>& waitIndex)
+{
+  return dispatch(process, &EtcdClientProcess::watch, waitIndex);
 }
 
 } // namespace etcd {

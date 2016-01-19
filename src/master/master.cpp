@@ -1665,6 +1665,7 @@ void Master::submitScheduler(const string& name)
 
 void Master::contended(const Future<Future<Nothing>>& candidacy)
 {
+  LOG(INFO) << "Master::contended called";
   CHECK(!candidacy.isDiscarded());
 
   if (candidacy.isFailed()) {

@@ -33,6 +33,7 @@
 
 #include "common/protobuf_utils.hpp"
 
+#include "etcd/detector.hpp"
 #include "etcd/etcd.hpp"
 
 #include "master/constants.hpp"
@@ -51,18 +52,19 @@ using namespace zookeeper;
 using std::set;
 using std::string;
 
-namespace mesos {
-namespace internal {
-
+namespace mesos
+{
+namespace internal
+{
 const Duration MASTER_DETECTOR_ZK_SESSION_TIMEOUT = Seconds(10);
 
 // TODO(bmahler): Consider moving these kinds of helpers into
 // libprocess or a common header within mesos.
-namespace promises {
-
+namespace promises
+{
 // Helper for setting a set of Promises.
 template <typename T>
-void set(std::set<Promise<T>* >* promises, const T& t)
+void set(std::set<Promise<T>*>* promises, const T& t)
 {
   foreach (Promise<T>* promise, *promises) {
     promise->set(t);
@@ -74,9 +76,9 @@ void set(std::set<Promise<T>* >* promises, const T& t)
 
 // Helper for failing a set of Promises.
 template <typename T>
-void fail(std::set<Promise<T>* >* promises, const string& failure)
+void fail(std::set<Promise<T>*>* promises, const string& failure)
 {
-  foreach (Promise<Option<MasterInfo> >* promise, *promises) {
+  foreach (Promise<Option<MasterInfo>>* promise, *promises) {
     promise->fail(failure);
     delete promise;
   }
@@ -86,7 +88,7 @@ void fail(std::set<Promise<T>* >* promises, const string& failure)
 
 // Helper for discarding a set of Promises.
 template <typename T>
-void discard(std::set<Promise<T>* >* promises)
+void discard(std::set<Promise<T>*>* promises)
 {
   foreach (Promise<T>* promise, *promises) {
     promise->discard();
@@ -98,7 +100,7 @@ void discard(std::set<Promise<T>* >* promises)
 
 // Helper for discarding an individual promise in the set.
 template <typename T>
-void discard(std::set<Promise<T>* >* promises, const Future<T>& future)
+void discard(std::set<Promise<T>*>* promises, const Future<T>& future)
 {
   foreach (Promise<T>* promise, *promises) {
     if (promise->future() == future) {
@@ -118,10 +120,13 @@ class StandaloneMasterDetectorProcess
 {
 public:
   StandaloneMasterDetectorProcess()
-    : ProcessBase(ID::generate("standalone-master-detector")) {}
+    : ProcessBase(ID::generate("standalone-master-detector"))
+  {
+  }
   explicit StandaloneMasterDetectorProcess(const MasterInfo& _leader)
-    : ProcessBase(ID::generate("standalone-master-detector")),
-      leader(_leader) {}
+    : ProcessBase(ID::generate("standalone-master-detector")), leader(_leader)
+  {
+  }
 
   ~StandaloneMasterDetectorProcess()
   {
@@ -135,31 +140,30 @@ public:
     promises::set(&promises, leader);
   }
 
-  Future<Option<MasterInfo> > detect(
-      const Option<MasterInfo>& previous = None())
+  Future<Option<MasterInfo>> detect(const Option<MasterInfo>& previous = None())
   {
     if (leader != previous) {
       return leader;
     }
 
-    Promise<Option<MasterInfo> >* promise = new Promise<Option<MasterInfo> >();
+    Promise<Option<MasterInfo>>* promise = new Promise<Option<MasterInfo>>();
 
-    promise->future()
-      .onDiscard(defer(self(), &Self::discard, promise->future()));
+    promise->future().onDiscard(
+      defer(self(), &Self::discard, promise->future()));
 
     promises.insert(promise);
     return promise->future();
   }
 
 private:
-  void discard(const Future<Option<MasterInfo> >& future)
+  void discard(const Future<Option<MasterInfo>>& future)
   {
     // Discard the promise holding this future.
     promises::discard(&promises, future);
   }
 
   Option<MasterInfo> leader; // The appointed master.
-  set<Promise<Option<MasterInfo> >*> promises;
+  set<Promise<Option<MasterInfo>>*> promises;
 };
 
 
@@ -172,105 +176,92 @@ public:
   ~ZooKeeperMasterDetectorProcess();
 
   virtual void initialize();
-  Future<Option<MasterInfo> > detect(const Option<MasterInfo>& previous);
+  Future<Option<MasterInfo>> detect(const Option<MasterInfo>& previous);
 
 private:
-  void discard(const Future<Option<MasterInfo> >& future);
+  void discard(const Future<Option<MasterInfo>>& future);
 
   // Invoked when the group leadership has changed.
-  void detected(const Future<Option<Group::Membership> >& leader);
+  void detected(const Future<Option<Group::Membership>>& leader);
 
   // Invoked when we have fetched the data associated with the leader.
-  void fetched(
-      const Group::Membership& membership,
-      const Future<Option<string> >& data);
+  void fetched(const Group::Membership& membership,
+               const Future<Option<string>>& data);
 
   Owned<Group> group;
   LeaderDetector detector;
 
   // The leading Master.
   Option<MasterInfo> leader;
-  set<Promise<Option<MasterInfo> >*> promises;
+  set<Promise<Option<MasterInfo>>*> promises;
 
   // Potential non-retryable error.
   Option<Error> error;
 };
 
-class EtcdMasterDetectorProcess
-  : public Process<EtcdMasterDetectorProcess>
+class EtcdMasterDetectorProcess : public Process<EtcdMasterDetectorProcess>
 {
 public:
-  explicit EtcdMasterDetectorProcess(const etcd::URL& _url) : url(_url) {}
-
-  virtual ~EtcdMasterDetectorProcess() {}
-
-  Future<Option<MasterInfo>> detect(const Option<MasterInfo>& previous)
+  explicit EtcdMasterDetectorProcess(const etcd::URL& _url)
+    : detector(_url), url(_url)
   {
-    // Try and get the current master.
-    return etcd::get(url)
-      .then(defer(self(), &Self::_detect, previous, lambda::_1));
   }
 
+  virtual ~EtcdMasterDetectorProcess()
+  {
+  }
+
+  Future<Option<MasterInfo>> detect(const Option<MasterInfo>& previous);
 private:
-  Future<Option<MasterInfo>> _detect(
-      const Option<MasterInfo>& previous,
-      const Option<etcd::Node>& node)
-  {
-    // Check and see if the node still exists.
-    if (node.isNone() && previous.isSome()) {
-      return None();
-    }
+  Future<Option<MasterInfo>> detected(const Option<MasterInfo>& previous,
+                                      const Option<string>& data);
 
-    // If we need to continue watching then we'll use a 'waitIndex' to
-    // pass to etcd extracted from the 'modifiedIndex' from the
-    // node. But it's also possible that 'node' is None in which case
-    // we'll leave 'waitIndex' as None as well).
-    Option<uint64_t> waitIndex = None();
+  etcd::LeaderDetector detector;
+  const etcd::URL url;
+};
 
-    // Determine if we have a newly elected master or need to keep
-    // waiting by watching.
-    if (node.isSome() && node.get().value.isSome()) {
-      Try<JSON::Value> json = JSON::parse(node.get().value.get());
-      if (json.isError()) {
-        return Failure("Failed to parse JSON: " + json.error());
-      }
-
-      Try<MasterInfo> info = ::protobuf::parse<MasterInfo>(json.get());
-      if (info.isError()) {
-        return Failure("Failed to parse MasterInfo from JSON: " + info.error());
-      }
-
-      // Check if we have a newly detected master.
-      if (previous != info.get()) {
-        return info.get();
-      }
-
-      if (node.get().modifiedIndex.isSome()) {
-        // In order to watch for the next change we want
-        // 'modifiedIndex + 1'.
-        waitIndex = node.get().modifiedIndex.get() + 1;
-      }
-    }
-
-    // NOTE: We're explicitly ignoring the return value of
-    // 'etcd::watch' since we can't distinguish a failed future from
-    // when etcd might have closed our connection because we were
-    // connected for the maximum watch time limit. Instead, we simply
-    // retry after 'etcd::watch' completes or fails.
-    return etcd::watch(url, waitIndex)
-      .repair(defer(self(), &Self::repair, lambda::_1))
-      .then(defer(self(), &Self::detect, previous));
+Future<Option<MasterInfo>> EtcdMasterDetectorProcess::detect(
+  const Option<MasterInfo>& previous)
+{
+  // Try and get the current master.
+  Option<string> data;
+  if (previous.isSome()) {
+    data = stringify(JSON::Protobuf(previous.get()));
   }
+  return detector.detect(data)
+    .then(defer(self(), &Self::detected, previous, lambda::_1));
+}
 
-  Future<Option<etcd::Node>> repair(const Future<Option<etcd::Node>>&)
-  {
-    // We "repair" the future by just returning None as that will
-    // cause the detection loop to continue.
+Future<Option<MasterInfo>> EtcdMasterDetectorProcess::detected(
+  const Option<MasterInfo>& previous, const Option<string>& data)
+{
+  // Check and see if the node still exists.
+  if (data.isNone() && previous.isSome()) {
     return None();
   }
 
-  const etcd::URL url;
-};
+  // Determine if we have a newly elected master
+  if (data.isSome()) {
+    Try<JSON::Value> json = JSON::parse(data.get());
+    if (json.isError()) {
+      return Failure("Failed to parse JSON: " + json.error());
+    }
+
+    Try<MasterInfo> info = ::protobuf::parse<MasterInfo>(json.get());
+    if (info.isError()) {
+      return Failure("Failed to parse MasterInfo from JSON: " + info.error());
+    }
+
+    // Check if we have a newly detected master.
+    if (previous != info.get()) {
+      return info.get();
+    }
+  }
+
+  // Keep detecting
+  return detector.detect(data)
+    .then(defer(self(), &Self::detected, previous, lambda::_1));
+}
 
 
 EtcdMasterDetector::EtcdMasterDetector(const etcd::URL& url)
@@ -310,16 +301,18 @@ Try<MasterDetector*> MasterDetector::create(const Option<string>& _mechanism)
     }
     if (url.get().path == "/") {
       return Error(
-          "Expecting a (chroot) path for ZooKeeper ('/' is not supported)");
+        "Expecting a (chroot) path for ZooKeeper ('/' is not supported)");
     }
     return new ZooKeeperMasterDetector(url.get());
-  } else if (strings::startsWith(mechanism, etcd::URL::scheme())) {
+  }
+  else if (strings::startsWith(mechanism, etcd::URL::scheme())) {
     Try<etcd::URL> url = etcd::URL::parse(mechanism);
     if (url.isError()) {
       return Error(url.error());
     }
     return new EtcdMasterDetector(url.get());
-  } else if (strings::startsWith(mechanism.get(), "file://")) {
+  }
+  else if (strings::startsWith(mechanism, "file://")) {
     // Load the configuration out of a file. While Mesos and related
     // programs always use <stout/flags> to process the command line
     // arguments (and therefore file://) this entrypoint is exposed by
@@ -337,7 +330,7 @@ Try<MasterDetector*> MasterDetector::create(const Option<string>& _mechanism)
     LOG(WARNING) << "Specifying master detection mechanism / ZooKeeper URL to "
                     "be read out of a file via 'file://' is deprecated inside "
                     "Mesos and will be removed in a future release.";
-    const string& path = mechanism.get().substr(7);
+    const string& path = mechanism.substr(7);
     const Try<string> read = os::read(path);
     if (read.isError()) {
       return Error("Failed to read from file at '" + path + "'");
@@ -347,9 +340,8 @@ Try<MasterDetector*> MasterDetector::create(const Option<string>& _mechanism)
   }
 
   // Okay, try and parse what we got as a PID.
-  UPID pid = mechanism.find("master@") == 0
-    ? UPID(mechanism)
-    : UPID("master@" + mechanism);
+  UPID pid = mechanism.find("master@") == 0 ? UPID(mechanism)
+                                            : UPID("master@" + mechanism);
 
   if (!pid) {
     return Error("Failed to parse '" + mechanism + "'");
@@ -359,7 +351,9 @@ Try<MasterDetector*> MasterDetector::create(const Option<string>& _mechanism)
 }
 
 
-MasterDetector::~MasterDetector() {}
+MasterDetector::~MasterDetector()
+{
+}
 
 
 StandaloneMasterDetector::StandaloneMasterDetector()
@@ -401,14 +395,13 @@ void StandaloneMasterDetector::appoint(const Option<MasterInfo>& leader)
 
 void StandaloneMasterDetector::appoint(const UPID& leader)
 {
-  dispatch(process,
-           &StandaloneMasterDetectorProcess::appoint,
+  dispatch(process, &StandaloneMasterDetectorProcess::appoint,
            protobuf::createMasterInfo(leader));
 }
 
 
-Future<Option<MasterInfo> > StandaloneMasterDetector::detect(
-    const Option<MasterInfo>& previous)
+Future<Option<MasterInfo>> StandaloneMasterDetector::detect(
+  const Option<MasterInfo>& previous)
 {
   return dispatch(process, &StandaloneMasterDetectorProcess::detect, previous);
 }
@@ -416,20 +409,24 @@ Future<Option<MasterInfo> > StandaloneMasterDetector::detect(
 
 // TODO(benh): Get ZooKeeper timeout from configuration.
 ZooKeeperMasterDetectorProcess::ZooKeeperMasterDetectorProcess(
-    const zookeeper::URL& url)
-  : ZooKeeperMasterDetectorProcess(Owned<Group>(
-    new Group(url.servers,
-              MASTER_DETECTOR_ZK_SESSION_TIMEOUT,
-              url.path,
-              url.authentication))) {}
+  const zookeeper::URL& url)
+  : ZooKeeperMasterDetectorProcess(
+      Owned<Group>(new Group(url.servers,
+                             MASTER_DETECTOR_ZK_SESSION_TIMEOUT,
+                             url.path,
+                             url.authentication)))
+{
+}
 
 
 ZooKeeperMasterDetectorProcess::ZooKeeperMasterDetectorProcess(
-    Owned<Group> _group)
+  Owned<Group> _group)
   : ProcessBase(ID::generate("zookeeper-master-detector")),
     group(_group),
     detector(group.get()),
-    leader(None()) {}
+    leader(None())
+{
+}
 
 
 ZooKeeperMasterDetectorProcess::~ZooKeeperMasterDetectorProcess()
@@ -440,21 +437,20 @@ ZooKeeperMasterDetectorProcess::~ZooKeeperMasterDetectorProcess()
 
 void ZooKeeperMasterDetectorProcess::initialize()
 {
-  detector.detect()
-    .onAny(defer(self(), &Self::detected, lambda::_1));
+  detector.detect().onAny(defer(self(), &Self::detected, lambda::_1));
 }
 
 
 void ZooKeeperMasterDetectorProcess::discard(
-    const Future<Option<MasterInfo> >& future)
+  const Future<Option<MasterInfo>>& future)
 {
   // Discard the promise holding this future.
   promises::discard(&promises, future);
 }
 
 
-Future<Option<MasterInfo> > ZooKeeperMasterDetectorProcess::detect(
-    const Option<MasterInfo>& previous)
+Future<Option<MasterInfo>> ZooKeeperMasterDetectorProcess::detect(
+  const Option<MasterInfo>& previous)
 {
   // Return immediately if the detector is no longer operational due
   // to a non-retryable error.
@@ -466,10 +462,9 @@ Future<Option<MasterInfo> > ZooKeeperMasterDetectorProcess::detect(
     return leader;
   }
 
-  Promise<Option<MasterInfo> >* promise = new Promise<Option<MasterInfo> >();
+  Promise<Option<MasterInfo>>* promise = new Promise<Option<MasterInfo>>();
 
-  promise->future()
-    .onDiscard(defer(self(), &Self::discard, promise->future()));
+  promise->future().onDiscard(defer(self(), &Self::discard, promise->future()));
 
   promises.insert(promise);
   return promise->future();
@@ -477,7 +472,7 @@ Future<Option<MasterInfo> > ZooKeeperMasterDetectorProcess::detect(
 
 
 void ZooKeeperMasterDetectorProcess::detected(
-    const Future<Option<Group::Membership> >& _leader)
+  const Future<Option<Group::Membership>>& _leader)
 {
   CHECK(!_leader.isDiscarded());
 
@@ -499,7 +494,8 @@ void ZooKeeperMasterDetectorProcess::detected(
     leader = None();
 
     promises::set(&promises, leader);
-  } else {
+  }
+  else {
     // Fetch the data associated with the leader.
     group->data(_leader.get().get())
       .onAny(defer(self(), &Self::fetched, _leader.get().get(), lambda::_1));
@@ -512,8 +508,7 @@ void ZooKeeperMasterDetectorProcess::detected(
 
 
 void ZooKeeperMasterDetectorProcess::fetched(
-    const Group::Membership& membership,
-    const Future<Option<string> >& data)
+  const Group::Membership& membership, const Future<Option<string>>& data)
 {
   CHECK(!data.isDiscarded());
 
@@ -521,7 +516,8 @@ void ZooKeeperMasterDetectorProcess::fetched(
     leader = None();
     promises::fail(&promises, data.failure());
     return;
-  } else if (data.get().isNone()) {
+  }
+  else if (data.get().isNone()) {
     // Membership is gone before we can read its data.
     leader = None();
     promises::set(&promises, leader);
@@ -537,7 +533,8 @@ void ZooKeeperMasterDetectorProcess::fetched(
     UPID pid = UPID(data.get().get());
     LOG(WARNING) << "Leading master " << pid << " has data in old format";
     leader = protobuf::createMasterInfo(pid);
-  } else if (label.isSome() && label.get() == master::MASTER_INFO_LABEL) {
+  }
+  else if (label.isSome() && label.get() == master::MASTER_INFO_LABEL) {
     MasterInfo info;
     if (!info.ParseFromString(data.get().get())) {
       leader = None();
@@ -549,40 +546,40 @@ void ZooKeeperMasterDetectorProcess::fetched(
                  << "ZooKeeper (" << label.get() << "): this will be deprecated"
                  << " as of Mesos 0.24 (see MESOS-2340)";
     leader = info;
-  } else if (label.isSome() && label.get() == master::MASTER_INFO_JSON_LABEL) {
+  }
+  else if (label.isSome() && label.get() == master::MASTER_INFO_JSON_LABEL) {
     Try<JSON::Object> object = JSON::parse<JSON::Object>(data.get().get());
 
     if (object.isError()) {
       leader = None();
-      promises::fail(
-          &promises,
-          "Failed to parse data into valid JSON: " + object.error());
+      promises::fail(&promises,
+                     "Failed to parse data into valid JSON: " + object.error());
       return;
     }
 
     Try<mesos::MasterInfo> info =
-        ::protobuf::parse<mesos::MasterInfo>(object.get());
+      ::protobuf::parse<mesos::MasterInfo>(object.get());
 
     if (info.isError()) {
       leader = None();
       promises::fail(
-          &promises,
-          "Failed to parse JSON into a valid MasterInfo protocol buffer: " +
+        &promises,
+        "Failed to parse JSON into a valid MasterInfo protocol buffer: " +
           info.error());
       return;
     }
 
     leader = info.get();
-  } else {
+  }
+  else {
     leader = None();
     promises::fail(
-        &promises,
-        "Failed to parse data of unknown label '" + label.get() + "'");
+      &promises, "Failed to parse data of unknown label '" + label.get() + "'");
     return;
   }
 
-  LOG(INFO) << "A new leading master (UPID="
-            << UPID(leader.get().pid()) << ") is detected";
+  LOG(INFO) << "A new leading master (UPID=" << UPID(leader.get().pid())
+            << ") is detected";
 
   promises::set(&promises, leader);
 }
@@ -610,8 +607,8 @@ ZooKeeperMasterDetector::~ZooKeeperMasterDetector()
 }
 
 
-Future<Option<MasterInfo> > ZooKeeperMasterDetector::detect(
-    const Option<MasterInfo>& previous)
+Future<Option<MasterInfo>> ZooKeeperMasterDetector::detect(
+  const Option<MasterInfo>& previous)
 {
   return dispatch(process, &ZooKeeperMasterDetectorProcess::detect, previous);
 }

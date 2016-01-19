@@ -23,6 +23,7 @@
 #include <stout/protobuf.hpp>
 
 #include "etcd/etcd.hpp"
+#include "etcd/contender.hpp"
 
 #include "master/constants.hpp"
 #include "master/contender.hpp"
@@ -98,7 +99,7 @@ Try<MasterContender*> MasterContender::create(const Option<string>& _mechanism)
       return Error(url.error());
     }
     return new EtcdMasterContender(url.get());
-  } else if (strings::startsWith(mechanism.get(), "file://")) {
+  } else if (strings::startsWith(mechanism, "file://")) {
     // Load the configuration out of a file. While Mesos and related
     // programs always use <stout/flags> to process the command line
     // arguments (and therefore file://) this entrypoint is exposed by
@@ -116,7 +117,7 @@ Try<MasterContender*> MasterContender::create(const Option<string>& _mechanism)
     LOG(WARNING) << "Specifying master election mechanism / ZooKeeper URL to "
                     "be read out of a file via 'file://' is deprecated inside "
                     "Mesos and will be removed in a future release.";
-    const string& path = mechanism.get().substr(7);
+    const string& path = mechanism.substr(7);
     const Try<string> read = os::read(path);
     if (read.isError()) {
       return Error("Failed to read from file at '" + path + "'");
@@ -125,7 +126,7 @@ Try<MasterContender*> MasterContender::create(const Option<string>& _mechanism)
     return create(strings::trim(read.get()));
   }
 
-  return Error("Failed to parse '" + mechanism.get() + "'");
+  return Error("Failed to parse '" + mechanism + "'");
 }
 
 
@@ -259,7 +260,9 @@ Future<Future<Nothing> > ZooKeeperMasterContenderProcess::contend()
 class EtcdMasterContenderProcess : public Process<EtcdMasterContenderProcess>
 {
 public:
-  EtcdMasterContenderProcess(const etcd::URL& _url) : url(_url) {}
+  EtcdMasterContenderProcess(const etcd::URL& _url) : contender(NULL), url(_url)
+  {
+  }
 
   virtual ~EtcdMasterContenderProcess()
   {
@@ -275,21 +278,10 @@ public:
   Future<Future<Nothing>> contend();
 
 private:
-  // Continuations.
-  Future<Nothing> _contend(const Option<etcd::Node>& node);
-  Future<Nothing> __contend(const Option<etcd::Node>& node);
-  Future<Nothing> ___contend(const etcd::Node& node);
-
-  // Helper for repairing failures from etcd::watch.
-  Future<Option<etcd::Node>> repair(const Future<Option<etcd::Node>>&);
+  etcd::LeaderContender* contender;
 
   const etcd::URL url;
-  Option<string> masterInfo;
-
-  // Represents the future, if any, that's currently being used for
-  // contending. We save this so that we can discard a previous call
-  // to contend.
-  Option<Future<Nothing>> future;
+  Option<MasterInfo> masterInfo;
 };
 
 EtcdMasterContender::EtcdMasterContender(const etcd::URL& url)
@@ -321,7 +313,7 @@ Future<Future<Nothing>> EtcdMasterContender::contend()
 
 void EtcdMasterContenderProcess::initialize(const MasterInfo& _masterInfo)
 {
-  masterInfo = stringify(JSON::Protobuf(_masterInfo));
+  masterInfo = _masterInfo;
 }
 
 
@@ -332,108 +324,16 @@ Future<Future<Nothing>> EtcdMasterContenderProcess::contend()
   }
 
   // Check if we're already contending.
-  if (future.isSome()) {
-    // Withdraw previous contending (copy required to get non-const).
-    Future<Nothing>(future.get()).discard();
+  if (contender != NULL) {
+    LOG(INFO) << "Withdrawing the previous contending before recontending";
+    delete contender;
   }
 
-  future = etcd::get(url)
-    .then(defer(self(), &Self::_contend, lambda::_1));
+  // Serialize the MasterInfo to JSON.
+  JSON::Object json = JSON::Protobuf(masterInfo.get());
 
-  // Return a completed outermost future right away with the innermost
-  // future coming from attempting to contend!
-  return future.get();
-}
-
-
-Future<Nothing> EtcdMasterContenderProcess::_contend(
-    const Option<etcd::Node>& node)
-{
-  if (node.isNone()) {
-    return etcd::create(url, masterInfo.get(), DEFAULT_ETCD_TTL, false)
-      .then(defer(self(), &Self::__contend, lambda::_1));
-  }
-
-  // A node exists which means someone else is elected and we need to
-  // keep watching until we can try again. First check to make sure
-  // that it has a value.
-
-  if (node.get().value.isNone()) {
-    // TODO(benh): Consider just retrying instead of failing so as to
-    // limit this being used to cause a denial-of-service.
-    return Failure("Not expecting a missing value");
-  }
-
-  // Extract the 'modifiedIndex' from the node so that we can
-  // watch for _new_ changes, i.e., 'modifiedIndex + 1'.
-  Option<uint64_t> waitIndex = node.get().modifiedIndex.get() + 1;
-
-  // Watch the node until we can try and elect ourselves.
-  //
-  // NOTE: We're explicitly ignoring the return value of 'etcd::watch'
-  // since we can't distinguish a failed future from when etcd might
-  // have closed our connection because we were connected for the
-  // maximum watch time limit. Instead, we simply resume contending
-  // after 'etcd::watch' completes or fails.
-  return etcd::watch(url, waitIndex)
-    .repair(defer(self(), &Self::repair, lambda::_1))
-    .then(lambda::bind(&etcd::get, url))
-    .then(defer(self(), &Self::_contend, lambda::_1));
-}
-
-
-Future<Nothing> EtcdMasterContenderProcess::__contend(
-    const Option<etcd::Node>& node)
-{
-  if (node.isNone()) {
-    // Looks like we we're able to create (or update) the node before
-    // someone else (or our TTL elapsed), either way we are not
-    // elected.
-    return Nothing();
-  }
-
-  // We're now elected, or we're still elected, i.e., the etcd::create
-  // was successful! Now we watch the node to make sure that no
-  // changes occur (they shouldn't since we should be the incumbent,
-  // but better to be conservative). If no changes occur we try and
-  // extend our reign after 80% of the TTL has elapsed.
-
-  // Extract the 'modifiedIndex' from the node so that we can
-  // watch for _new_ changes, i.e., 'modifiedIndex + 1'.
-  Option<uint64_t> waitIndex = node.get().modifiedIndex.get() + 1;
-
-  // Extract the 'ttl' from the node (which we should have set
-  // anyways) to use when watching the node for changes.
-  Duration ttl = node.get().ttl.getOrElse(DEFAULT_ETCD_TTL);
-
-  // NOTE: We're explicitly ignoring the return value of 'etcd::watch'
-  // since we can't distinguish a failed future from when etcd might
-  // have closed our connection because we were connected for the
-  // maximum watch time limit. Instead, we simply resume contending
-  // after 'etcd::watch' completes or fails.
-  return etcd::watch(url, waitIndex)
-    .after(Seconds(ttl * 8 / 10),
-           defer(self(), &Self::repair, lambda::_1))
-    .repair(defer(self(), &Self::repair, lambda::_1))
-    .then(defer(self(), &Self::___contend, node.get()));
-}
-
-
-Future<Nothing> EtcdMasterContenderProcess::___contend(
-  const etcd::Node& node)
-{
-  return etcd::create(
-           url, masterInfo.get(), DEFAULT_ETCD_TTL, true, node.modifiedIndex)
-    .then(defer(self(), &Self::__contend, lambda::_1));
-}
-
-
-Future<Option<etcd::Node>> EtcdMasterContenderProcess::repair(
-  const Future<Option<etcd::Node>>&)
-{
-  // We "repair" the future by just returning None as that will
-  // cause the contending loop to continue.
-  return None();
+  contender = new etcd::LeaderContender(url, stringify(json), DEFAULT_ETCD_TTL);
+  return contender->contend();
 }
 
 } // namespace internal {

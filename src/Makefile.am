@@ -579,6 +579,10 @@ libmesos_no_3rdparty_la_SOURCES +=					\
   etcd/etcd.hpp                           \
   etcd/url.cpp                            \
   etcd/url.hpp                            \
+  etcd/contender.cpp						\
+  etcd/contender.hpp						\
+  etcd/detector.cpp						\
+  etcd/detector.hpp						\
   exec/exec.cpp								\
   files/files.cpp							\
   hdfs/hdfs.cpp								\
@@ -1907,7 +1911,8 @@ dist_check_SCRIPTS +=						\
   tests/no_executor_framework_test.sh				\
   tests/persistent_volume_framework_test.sh			\
   tests/python_framework_test.sh				\
-  tests/test_framework_test.sh
+  tests/test_framework_test.sh					\
+  tests/etcd_test.sh
 
 # We use a check-local target for now to avoid the parallel test
 # runner that ships with newer versions of autotools.
