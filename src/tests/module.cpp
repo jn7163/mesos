@@ -283,6 +283,32 @@ static void addHttpAuthenticatorModules(Modules* modules)
 }
 
 
+static void addFetcherPluginModules(Modules* modules)
+{
+  CHECK_NOTNULL(modules);
+
+  const string libraryDirectory = path::join(
+      tests::flags.build_dir,
+      "src",
+      ".libs");
+
+  const string curlFetcherPluginPath = path::join(
+      libraryDirectory,
+      os::libraries::expandName("testfetcher_plugin"));
+
+  // Add our test container logger module.
+  Modules::Library* library = modules->add_libraries();
+  library->set_file(curlFetcherPluginPath);
+
+  // To add a new module from this library, create a new ModuleID enum
+  // and tie it with a module name.
+  addModule(library,
+            TestCurlFetcherPlugin,
+            "org_apache_mesos_TestCurlFetcherPlugin");
+}
+
+
+
 Try<Nothing> initModules(const Option<Modules>& modules)
 {
   // First get the user provided modules.
@@ -317,6 +343,9 @@ Try<Nothing> initModules(const Option<Modules>& modules)
 
   // Add HTTP authenticator modules from testhttpauthenticator library.
   addHttpAuthenticatorModules(&mergedModules);
+
+  // Add fetcher plugin modules from testfetcher_plugin library.
+  addFetcherPluginModules(&mergedModules);
 
   return ModuleManager::load(mergedModules);
 }

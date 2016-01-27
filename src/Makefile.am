@@ -460,6 +460,7 @@ module_HEADERS =							\
   $(top_srcdir)/include/mesos/module/authenticator.hpp			\
   $(top_srcdir)/include/mesos/module/authorizer.hpp			\
   $(top_srcdir)/include/mesos/module/container_logger.hpp		\
+  $(top_srcdir)/include/mesos/module/fetcher_plugin.hpp			\
   $(top_srcdir)/include/mesos/module/hook.hpp				\
   $(top_srcdir)/include/mesos/module/http_authenticator.hpp		\
   $(top_srcdir)/include/mesos/module/isolator.hpp			\
@@ -1724,6 +1725,13 @@ libtestcontainer_logger_la_SOURCES =		\
   examples/test_container_logger_module.cpp
 libtestcontainer_logger_la_CPPFLAGS = $(MESOS_CPPFLAGS)
 libtestcontainer_logger_la_LDFLAGS = $(MESOS_TEST_MODULE_LDFLAGS)
+
+# Library containing example test fetcher plugin module.
+noinst_LTLIBRARIES += libtestfetcher_plugin.la
+libtestfetcher_plugin_la_SOURCES =		\
+  examples/test_fetcher_plugin_module.cpp
+libtestfetcher_plugin_la_CPPFLAGS = $(MESOS_CPPFLAGS)
+libtestfetcher_plugin_la_LDFLAGS = $(MESOS_TEST_MODULE_LDFLAGS)
 
 # Library containing test Hook module.
 noinst_LTLIBRARIES += libtesthook.la

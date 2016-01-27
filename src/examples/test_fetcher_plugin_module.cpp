@@ -14,46 +14,45 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef __URI_FETCHER_HPP__
-#define __URI_FETCHER_HPP__
+#include <string>
 
-#include <process/owned.hpp>
+#include <mesos/mesos.hpp>
+#include <mesos/module.hpp>
 
-#include <stout/none.hpp>
-#include <stout/option.hpp>
-#include <stout/try.hpp>
+#include <mesos/module/fetcher_plugin.hpp>
 
 #include <mesos/uri/fetcher.hpp>
 
+#include <stout/try.hpp>
+
 #include "uri/fetchers/curl.hpp"
-#include "uri/fetchers/docker.hpp"
-#include "uri/fetchers/hadoop.hpp"
 
-namespace mesos {
-namespace uri {
-namespace fetcher {
+using namespace mesos;
 
-/**
- * The combined flags for all built-in plugins.
- */
-class Flags : public CurlFetcherPlugin::Flags,
-              public HadoopFetcherPlugin::Flags,
-              public DockerFetcherPlugin::Flags
-{
-public:
-  Flags();
+using process::Owned;
 
-  Option<std::string> external_fetcher_plugin;
-};
+using mesos::uri::CurlFetcherPlugin;
+
+using mesos::uri::Fetcher;
 
 
-/**
- * Factory method for creating a Fetcher instance.
- */
-Try<process::Owned<Fetcher>> create(const Option<Flags>& flags = None());
+// Declares a test FetcherPlugin module named
+// 'org_apache_mesos_TestCurlFetcherPlugin'.
+mesos::modules::Module<Fetcher::Plugin>
+org_apache_mesos_TestCurlFetcherPlugin(
+    MESOS_MODULE_API_VERSION,
+    MESOS_VERSION,
+    "Apache Mesos",
+    "modules@mesos.apache.org",
+    "Test Curl Fetcher Plugin module.",
+    NULL,
+    [](const Parameters& paramters) -> Fetcher::Plugin* {
+      CurlFetcherPlugin::Flags flags;
+      Try<Owned<Fetcher::Plugin>> result = CurlFetcherPlugin::create(flags);
 
-} // namespace fetcher {
-} // namespace uri {
-} // namespace mesos {
+      if (result.isError()) {
+        return NULL;
+      }
 
-#endif // __URI_FETCHER_HPP__
+      return result.get().get();
+    });

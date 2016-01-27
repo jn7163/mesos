@@ -16,10 +16,13 @@
 
 #include <string>
 
+#include <mesos/module/fetcher_plugin.hpp>
+
 #include <stout/foreach.hpp>
 #include <stout/lambda.hpp>
 #include <stout/hashmap.hpp>
 
+#include "module/manager.hpp"
 #include "uri/fetcher.hpp"
 
 using std::string;
@@ -32,6 +35,14 @@ namespace mesos {
 namespace uri {
 namespace fetcher {
 
+Flags::Flags()
+{
+  add(&Flags::external_fetcher_plugin,
+      "external_fetcher_plugin",
+      "The name of the fetcher plugin to be loaded from an external module.\n");
+}
+
+
 Try<Owned<Fetcher>> create(const Option<Flags>& _flags)
 {
   // Use the default flags if not specified.
@@ -40,6 +51,8 @@ Try<Owned<Fetcher>> create(const Option<Flags>& _flags)
     flags = _flags.get();
   }
 
+  Fetcher::Plugin *external_fetcher_plugin = NULL;
+
   // Load built-in plugins.
   typedef lambda::function<Try<Owned<Fetcher::Plugin>>()> Creator;
 
@@ -47,6 +60,23 @@ Try<Owned<Fetcher>> create(const Option<Flags>& _flags)
   creators.put("curl", lambda::bind(&CurlFetcherPlugin::create, flags));
   creators.put("hadoop", lambda::bind(&HadoopFetcherPlugin::create, flags));
   creators.put("docker", lambda::bind(&DockerFetcherPlugin::create, flags));
+
+  if (flags.external_fetcher_plugin.isSome()) {
+    Try<Fetcher::Plugin*> module =
+      modules::ModuleManager::create<Fetcher::Plugin>(
+        flags.external_fetcher_plugin.get());
+
+    if (module.isError()) {
+      return Error("Failed to create fetcher plugin module '" +
+                   flags.external_fetcher_plugin.get() + "': " +
+                   module.error());
+    }
+
+    external_fetcher_plugin = module.get();
+    // Add a prefix to avoid name confliction with builtin plugins.
+    creators.put("external_" + flags.external_fetcher_plugin.get(),
+                 [=]() { return external_fetcher_plugin; });
+  }
 
   hashmap<string, Owned<Fetcher::Plugin>> plugins;
 
