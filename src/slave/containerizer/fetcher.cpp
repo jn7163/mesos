@@ -751,6 +751,10 @@ Future<Nothing> FetcherProcess::run(
   // We pass arguments to the fetcher program by means of an
   // environment variable.
   map<string, string> environment = os::environment();
+  environment.erase("LIBPROCESS_IP");
+  environment.erase("LIBPROCESS_PORT");
+  environment.erase("LIBPROCESS_ADVERTISE_IP");
+  environment.erase("LIBPROCESS_ADVERTISE_PORT");
 
   environment["MESOS_FETCHER_INFO"] = stringify(JSON::protobuf(info));
 
