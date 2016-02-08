@@ -649,6 +649,7 @@ TYPED_TEST(MasterAllocatorTest, SlaveLost)
   MockExecutor exec(DEFAULT_EXECUTOR_ID);
 
   slave::Flags flags1 = this->CreateSlaveFlags();
+  flags1.executor_shutdown_grace_period = Milliseconds(50);
   flags1.resources = Some("cpus:2;mem:1024");
 
   EXPECT_CALL(allocator, addSlave(_, _, _, _, _));
