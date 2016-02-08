@@ -813,6 +813,9 @@ TEST_P(SchedulerTest, Decline)
   EXPECT_EQ(Event::OFFERS, event.get().type());
   ASSERT_EQ(1, event.get().offers().offers().size());
 
+  Future<Nothing> recoverResources =
+    FUTURE_DISPATCH(_, &MesosAllocatorProcess::recoverResources);
+
   v1::Offer offer = event.get().offers().offers(0);
   {
     Call call;
@@ -830,6 +833,12 @@ TEST_P(SchedulerTest, Decline)
     mesos.send(call);
   }
 
+  // Wait for allocator to finish processing the decline call.
+  AWAIT_READY(recoverResources);
+
+  Clock::pause();
+  Clock::advance(flags.allocation_interval);
+
   // If the resources were properly declined, the scheduler should
   // get another offer with same amount of resources.
   event = events.get();
@@ -837,6 +846,8 @@ TEST_P(SchedulerTest, Decline)
   EXPECT_EQ(Event::OFFERS, event.get().type());
   ASSERT_EQ(1, event.get().offers().offers().size());
   ASSERT_EQ(offer.resources(), event.get().offers().offers(0).resources());
+
+  Clock::resume();
 
   Shutdown(); // Must shutdown before 'containerizer' gets deallocated.
 }
